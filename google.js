@@ -1,79 +1,126 @@
 const { GoogleSpreadsheet } = require('google-spreadsheet');
-const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+
+// Validate environment variables immediately
+if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
+  throw new Error('Missing GOOGLE_SERVICE_ACCOUNT environment variable');
+}
+
 const SHEET_ID = '1VhNgQHRucjmR2itzi7ER6YKPhFbpw0v_0LQOXrmk4vk';
+const SERVICE_ACCOUNT = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+const TIMEZONE = 'Asia/Kolkata';
 
-// ✅ Utility to decode Google-style base64 CID
-function decodeBase64UrlSafe(str) {
-  str = str.replace(/-/g, '+').replace(/_/g, '/');
-  while (str.length % 4 !== 0) str += '=';
-  const buffer = Buffer.from(str, 'base64');
-  return buffer.toString('utf-8');
+// Helper function to get authenticated document
+async function getAuthenticatedDoc() {
+  try {
+    const doc = new GoogleSpreadsheet(SHEET_ID);
+    await doc.useServiceAccountAuth(SERVICE_ACCOUNT);
+    await doc.loadInfo();
+    return doc;
+  } catch (error) {
+    console.error('🔴 Google Sheets authentication failed:', error.message);
+    throw new Error('Failed to authenticate with Google Sheets');
+  }
 }
 
-// 🔍 Log open by matching CID
-async function logOpenByCid(cid) {
-  const decodedCid = decodeBase64UrlSafe(cid);  // ✅ Decode to match Sheet format
-  const doc = new GoogleSpreadsheet(SHEET_ID);
-  await doc.useServiceAccountAuth(creds);
-  await doc.loadInfo();
-
-  const sheet = doc.sheetsByTitle['Email Tracking Log'];
-  await sheet.loadHeaderRow();
-  const rows = await sheet.getRows();
-  const now = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' });
-
-  const trimmedCid = decodedCid.trim();
-  const target = rows.find(r => (r['CID'] || '').trim() === trimmedCid);
-
-  if (!target) {
-    console.error('❌ CID not found in sheet:', trimmedCid);
-    return;
+// 🔍 Enhanced open tracking with error handling
+async function logOpenByCid(decodedCid) {
+  if (!decodedCid || typeof decodedCid !== 'string') {
+    throw new Error('Invalid CID: Must be a non-empty string');
   }
 
-  const total = parseInt(target['Total Opens']) || 0;
-  target['Total Opens'] = total + 1;
-  target['Last Seen Time'] = now;
+  try {
+    const doc = await getAuthenticatedDoc();
+    const sheet = doc.sheetsByTitle['Email Tracking Log'];
+    
+    if (!sheet) {
+      throw new Error('Sheet "Email Tracking Log" not found');
+    }
 
-  for (let i = 1; i <= 10; i++) {
-    const col = `Seen ${i}`;
-    if (!target[col]) {
-      target[col] = now;
-      break;
+    await sheet.loadHeaderRow();
+    const rows = await sheet.getRows();
+    const now = new Date().toLocaleString('en-GB', { timeZone: TIMEZONE });
+    const trimmedCid = decodedCid.trim();
+
+    // Find matching row
+    const targetRow = rows.find(row => (row.get('CID') || '').trim() === trimmedCid);
+    
+    if (!targetRow) {
+      console.warn(`⚠️ CID not found: ${trimmedCid}`);
+      return false;
     }
-    if (i === 10) {
-      target[col] = now;
+
+    // Update counts
+    const totalOpens = (parseInt(targetRow.get('Total Opens')) || 0) + 1;
+    targetRow.set('Total Opens', totalOpens);
+    targetRow.set('Last Seen Time', now);
+
+    // Update first empty "Seen X" column
+    for (let i = 1; i <= 10; i++) {
+      const colName = `Seen ${i}`;
+      if (!targetRow.get(colName)) {
+        targetRow.set(colName, now);
+        break;
+      }
+      // If all 10 are full, update the last one
+      if (i === 10) {
+        targetRow.set(colName, now);
+      }
     }
+
+    await targetRow.save();
+    console.log(`✅ Open logged for ${trimmedCid} (Total: ${totalOpens})`);
+    return true;
+
+  } catch (error) {
+    console.error('🔴 Failed to log open:', error.message);
+    throw error;
   }
-
-  await target.save();
-  console.log(`✅ Open logged for CID: ${trimmedCid}`);
 }
 
-// 🆕 Insert new row on email send
+// ✉️ Robust row insertion with validation
 async function insertTrackingRow(company, email, subject, type, sentTime, cid) {
-  const doc = new GoogleSpreadsheet(SHEET_ID);
-  await doc.useServiceAccountAuth(creds);
-  await doc.loadInfo();
-  const sheet = doc.sheetsByTitle['Email Tracking Log'];
+  if (!cid) throw new Error('CID is required');
 
-  await sheet.addRow({
-    'Company Name': company,
-    'Email ID': email,
-    'Subject': subject,
-    'Email Type': type,
-    'Sent Time': sentTime,
-    'Total Opens': '',
-    'Last Seen Time': '',
-    'Seen 1': '', 'Seen 2': '', 'Seen 3': '', 'Seen 4': '', 'Seen 5': '',
-    'Seen 6': '', 'Seen 7': '', 'Seen 8': '', 'Seen 9': '', 'Seen 10': '',
-    'Total PDF Views': '', 'Last PDF View Time': '',
-    'Total Cal Clicks': '', 'Last Cal Click Time': '',
-    'Total Web Clicks': '', 'Last Web Click Time': '',
-    'Total Portfolio Link Clicks': '', 'Last Portfolio Link Time': '',
-    'CID': cid
-  });
+  try {
+    const doc = await getAuthenticatedDoc();
+    const sheet = doc.sheetsByTitle['Email Tracking Log'];
 
-  console.log(`✅ Row inserted for CID: ${cid}`);
+    if (!sheet) {
+      throw new Error('Sheet "Email Tracking Log" not found');
+    }
+
+    const newRow = {
+      'Company Name': company || 'N/A',
+      'Email ID': email || 'N/A',
+      'Subject': subject || 'No Subject',
+      'Email Type': type || 'General',
+      'Sent Time': sentTime || new Date().toLocaleString('en-GB', { timeZone: TIMEZONE }),
+      'CID': cid,
+      'Total Opens': 0,  // Initialize counters
+      'Total PDF Views': 0,
+      'Total Cal Clicks': 0,
+      'Total Web Clicks': 0,
+      'Total Portfolio Link Clicks': 0
+    };
+
+    // Initialize empty timestamp columns
+    ['Last Seen', 'PDF View', 'Cal Click', 'Web Click', 'Portfolio Link'].forEach(prefix => {
+      newRow[`${prefix} Time`] = '';
+    });
+
+    // Initialize Seen 1-10 columns
+    for (let i = 1; i <= 10; i++) {
+      newRow[`Seen ${i}`] = '';
+    }
+
+    await sheet.addRow(newRow);
+    console.log(`📝 New row inserted for CID: ${cid}`);
+    return true;
+
+  } catch (error) {
+    console.error('🔴 Failed to insert row:', error.message);
+    throw error;
+  }
 }
 
 module.exports = {
