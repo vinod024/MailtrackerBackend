@@ -2,8 +2,17 @@ const { GoogleSpreadsheet } = require('google-spreadsheet');
 const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
 const SHEET_ID = '1VhNgQHRucjmR2itzi7ER6YKPhFbpw0v_0LQOXrmk4vk';
 
+// ✅ Utility to decode Google-style base64 CID
+function decodeBase64UrlSafe(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4 !== 0) str += '=';
+  const buffer = Buffer.from(str, 'base64');
+  return buffer.toString('utf-8');
+}
+
 // 🔍 Log open by matching CID
-async function logOpenByCid(decodedCid) {
+async function logOpenByCid(cid) {
+  const decodedCid = decodeBase64UrlSafe(cid);  // ✅ Decode to match Sheet format
   const doc = new GoogleSpreadsheet(SHEET_ID);
   await doc.useServiceAccountAuth(creds);
   await doc.loadInfo();
