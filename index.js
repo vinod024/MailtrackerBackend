@@ -4,40 +4,27 @@ const { logOpenByCid } = require('./google');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Security middleware
+// Middleware
 app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
 
-// Health check endpoint
-app.get('/health', async (req, res) => {
-  try {
-    // Test database connection
-    const testDoc = new GoogleSpreadsheet(process.env.SHEET_ID);
-    await testDoc.useServiceAccountAuth(JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT));
-    await testDoc.loadInfo();
-    
-    res.status(200).json({ 
-      status: 'healthy',
-      services: {
-        googleSheets: 'connected',
-        memoryUsage: process.memoryUsage().rss / (1024 * 1024) + 'MB'
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      status: 'unhealthy',
-      error: error.message 
-    });
-  }
+// Health check endpoint (required by Railway)
+app.get('/', (req, res) => {
+  res.status(200).json({
+    status: 'live',
+    timestamp: new Date().toISOString(),
+    service: 'Email Tracker',
+    version: '2.0.0'
+  });
 });
 
-// Tracking endpoint with enhanced validation
+// Enhanced tracking endpoint
 app.get('/open', async (req, res) => {
   try {
-    // Validate CID exists
     const encodedCid = req.query.cid;
+    
+    // Validate CID parameter
     if (!encodedCid || encodedCid.length < 10) {
-      console.warn('⚠️ Invalid CID received:', encodedCid);
+      console.warn('Invalid CID received:', encodedCid?.substring(0, 50));
       return res.status(400).send('Invalid tracking parameters');
     }
 
@@ -46,17 +33,16 @@ app.get('/open', async (req, res) => {
     const parts = decoded.split('||');
     
     if (parts.length !== 5) {
-      console.warn('⚠️ Malformed CID structure:', decoded);
+      console.warn('Malformed CID structure:', decoded?.substring(0, 100));
       return res.status(400).send('Invalid tracking data format');
     }
 
     const [company, email, subject, type, sentTime] = parts;
     
-    // Log the request
-    console.log('📨 Open Pixel Triggered:', { 
+    console.log('📨 Open detected:', {
       company: company || 'Unknown',
-      email: email ? email.substring(0, 3) + '...@...' + email.split('@')[1] : 'None',
-      subject: subject ? subject.substring(0, 20) + (subject.length > 20 ? '...' : '') : 'None',
+      email: email ? `${email.substring(0, 3)}...@...${email.split('@')[1]}` : 'None',
+      subject: subject?.substring(0, 20) + (subject?.length > 20 ? '...' : ''),
       type,
       sentTime
     });
@@ -74,7 +60,7 @@ app.get('/open', async (req, res) => {
     }).send(pixel);
 
   } catch (err) {
-    console.error('❌ Critical error in /open:', {
+    console.error('❌ Tracking error:', {
       error: err.message,
       stack: err.stack,
       query: req.query
@@ -89,24 +75,23 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Start server with graceful shutdown
-const server = app.listen(port, () => {
-  console.log(`🚀 Server running on port ${port}`);
-  console.log(`📊 Tracking endpoint: http://localhost:${port}/open?cid=YOUR_CID`);
+// Start server with proper binding
+const server = app.listen(port, '0.0.0.0', () => {
+  console.log(`✅ Server running on port ${port}`);
+  console.log(`🔗 Health check: http://0.0.0.0:${port}/`);
+  console.log(`📌 Tracking endpoint: http://0.0.0.0:${port}/open?cid=YOUR_CID`);
 });
 
-// Handle shutdown signals
-const shutdown = async () => {
+// Graceful shutdown
+const shutdown = () => {
   console.log('🛑 Received shutdown signal');
-  
   server.close(() => {
     console.log('🔴 Server closed');
     process.exit(0);
   });
-
-  // Force shutdown after 5 seconds
+  
   setTimeout(() => {
-    console.error('⚠️ Forcing shutdown due to timeout');
+    console.error('⚠️ Forcing shutdown');
     process.exit(1);
   }, 5000);
 };

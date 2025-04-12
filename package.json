@@ -1,19 +1,17 @@
 {
   "name": "mailtracker-backend",
   "version": "2.0.0",
-  "description": "Production-ready email tracking system with Google Sheets integration",
+  "description": "Production email tracking system",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
     "test": "jest --watchAll",
-    "healthcheck": "curl -s http://localhost:3000/health | jq",
-    "lint": "eslint .",
-    "format": "prettier --write ."
+    "healthcheck": "curl -s http://0.0.0.0:3000/"
   },
   "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=9.0.0"
+    "node": "18.x",
+    "npm": "9.x"
   },
   "dependencies": {
     "dotenv": "^16.4.1",
@@ -21,18 +19,8 @@
     "google-spreadsheet": "^3.3.0"
   },
   "devDependencies": {
-    "eslint": "^8.56.0",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-node": "^11.1.0",
     "jest": "^29.7.0",
     "nodemon": "^3.0.2",
-    "prettier": "^3.2.5",
     "supertest": "^6.3.4"
-  },
-  "jest": {
-    "testEnvironment": "node",
-    "coveragePathIgnorePatterns": [
-      "/node_modules/"
-    ]
   }
 }
