@@ -1,100 +1,44 @@
-require('dotenv').config();
 const express = require('express');
-const { logOpenByCid } = require('./google');
+const { logOpenByCid, insertTrackingRow } = require('./google');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middleware
-app.use(express.json());
+// ✅ Base64 Web-Safe Decode (matches Apps Script encoding)
+function decodeBase64UrlSafe(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4 !== 0) str += '=';
+  return Buffer.from(str, 'base64').toString('utf-8');
+}
 
-// Health check endpoint (required by Railway)
-app.get('/', (req, res) => {
-  res.status(200).json({
-    status: 'live',
-    timestamp: new Date().toISOString(),
-    service: 'Email Tracker',
-    version: '2.0.0'
-  });
-});
-
-// Enhanced tracking endpoint
+// ✅ Email Open Tracking Pixel Endpoint
 app.get('/open', async (req, res) => {
   try {
     const encodedCid = req.query.cid;
-    
-    // Validate CID parameter
-    if (!encodedCid || encodedCid.length < 10) {
-      console.warn('Invalid CID received:', encodedCid?.substring(0, 50));
-      return res.status(400).send('Invalid tracking parameters');
-    }
+    if (!encodedCid) return res.status(400).send('Missing cid');
 
-    // Decode and validate structure
-    const decoded = Buffer.from(encodedCid, 'base64url').toString('utf-8');
-    const parts = decoded.split('||');
-    
-    if (parts.length !== 5) {
-      console.warn('Malformed CID structure:', decoded?.substring(0, 100));
-      return res.status(400).send('Invalid tracking data format');
-    }
+    const decoded = decodeBase64UrlSafe(encodedCid);  // 🔥 Real decode
+    const [company, email, subject, type, sentTime] = decoded.split('|');
 
-    const [company, email, subject, type, sentTime] = parts;
-    
-    console.log('📨 Open detected:', {
-      company: company || 'Unknown',
-      email: email ? `${email.substring(0, 3)}...@...${email.split('@')[1]}` : 'None',
-      subject: subject?.substring(0, 20) + (subject?.length > 20 ? '...' : ''),
-      type,
-      sentTime
-    });
+    console.log('📨 Open Pixel Triggered:', { company, email, subject, type, sentTime });
 
-    // Record the open
-    await logOpenByCid(decoded);
+    await logOpenByCid(encodedCid); // pass raw to google.js (it decodes again internally)
 
-    // Return transparent pixel
+    // 1x1 transparent gif
     const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==', 'base64');
-    res.set({
-      'Content-Type': 'image/gif',
-      'Cache-Control': 'no-store, no-cache, must-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0'
-    }).send(pixel);
-
+    res.set('Content-Type', 'image/gif');
+    res.send(pixel);
   } catch (err) {
-    console.error('❌ Tracking error:', {
-      error: err.message,
-      stack: err.stack,
-      query: req.query
-    });
-    res.status(500).send('Tracking service unavailable');
+    console.error('❌ Error processing /open:', err.message);
+    res.status(500).send('Tracking failed');
   }
 });
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('🔥 Unhandled error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+// ✅ Optional Root
+app.get('/', (req, res) => {
+  res.send('📬 Mailtracker backend is live!');
 });
 
-// Start server with proper binding
-const server = app.listen(port, '0.0.0.0', () => {
-  console.log(`✅ Server running on port ${port}`);
-  console.log(`🔗 Health check: http://0.0.0.0:${port}/`);
-  console.log(`📌 Tracking endpoint: http://0.0.0.0:${port}/open?cid=YOUR_CID`);
+// 🚀 Start Server
+app.listen(port, () => {
+  console.log(`🚀 Server running on port ${port}`);
 });
-
-// Graceful shutdown
-const shutdown = () => {
-  console.log('🛑 Received shutdown signal');
-  server.close(() => {
-    console.log('🔴 Server closed');
-    process.exit(0);
-  });
-  
-  setTimeout(() => {
-    console.error('⚠️ Forcing shutdown');
-    process.exit(1);
-  }, 5000);
-};
-
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);

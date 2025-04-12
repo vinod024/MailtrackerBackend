@@ -1,75 +1,82 @@
 const { GoogleSpreadsheet } = require('google-spreadsheet');
-
-// Validate configuration
-if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
-  throw new Error('Missing GOOGLE_SERVICE_ACCOUNT environment variable');
-}
-
+const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
 const SHEET_ID = '1VhNgQHRucjmR2itzi7ER6YKPhFbpw0v_0LQOXrmk4vk';
-const SERVICE_ACCOUNT = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
-const TIMEZONE = 'Asia/Kolkata';
 
-async function getAuthenticatedSheet() {
-  try {
-    const doc = new GoogleSpreadsheet(SHEET_ID);
-    await doc.useServiceAccountAuth(SERVICE_ACCOUNT);
-    await doc.loadInfo();
-    
-    const sheet = doc.sheetsByTitle['Email Tracking Log'];
-    if (!sheet) {
-      throw new Error('Sheet "Email Tracking Log" not found');
-    }
-    
-    await sheet.loadHeaderRow();
-    return sheet;
-  } catch (error) {
-    console.error('🔴 Google Sheets connection failed:', error.message);
-    throw error;
-  }
+// ✅ Utility to decode Google-style base64 CID
+function decodeBase64UrlSafe(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4 !== 0) str += '=';
+  const buffer = Buffer.from(str, 'base64');
+  return buffer.toString('utf-8');
 }
 
-async function logOpenByCid(decodedCid) {
-  if (!decodedCid) throw new Error('Missing CID');
-  
-  try {
-    const sheet = await getAuthenticatedSheet();
-    const rows = await sheet.getRows();
-    const now = new Date().toLocaleString('en-GB', { timeZone: TIMEZONE });
-    const trimmedCid = decodedCid.trim();
+// 🔍 Log open by matching CID
+async function logOpenByCid(cid) {
+  const decodedCid = decodeBase64UrlSafe(cid);  // ✅ Decode to match Sheet format
+  const doc = new GoogleSpreadsheet(SHEET_ID);
+  await doc.useServiceAccountAuth(creds);
+  await doc.loadInfo();
 
-    const targetRow = rows.find(row => (row.get('CID') || '').trim() === trimmedCid);
-    
-    if (!targetRow) {
-      console.warn(`CID not found: ${trimmedCid.substring(0, 50)}...`);
-      return false;
-    }
+  const sheet = doc.sheetsByTitle['Email Tracking Log'];
+  await sheet.loadHeaderRow();
+  const rows = await sheet.getRows();
+  const now = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' });
 
-    // Update counts
-    const totalOpens = (parseInt(targetRow.get('Total Opens')) || 0) + 1;
-    targetRow.set('Total Opens', totalOpens);
-    targetRow.set('Last Seen Time', now);
+  const trimmedCid = decodedCid.trim();
+  const target = rows.find(r => (r['CID'] || '').trim() === trimmedCid);
 
-    // Update first empty "Seen X" column
-    for (let i = 1; i <= 10; i++) {
-      const col = `Seen ${i}`;
-      if (!targetRow.get(col)) {
-        targetRow.set(col, now);
-        break;
-      }
-      if (i === 10) {
-        targetRow.set(col, now); // Rotate if all are full
-      }
-    }
-
-    await targetRow.save();
-    console.log(`✅ Logged open for ${trimmedCid.substring(0, 30)}... (Total: ${totalOpens})`);
-    return true;
-  } catch (error) {
-    console.error('🔴 Failed to log open:', error.message);
-    throw error;
+  if (!target) {
+    console.error('❌ CID not found in sheet:', trimmedCid);
+    return;
   }
+
+  const total = parseInt(target['Total Opens']) || 0;
+  target['Total Opens'] = total + 1;
+  target['Last Seen Time'] = now;
+
+  for (let i = 1; i <= 10; i++) {
+    const col = `Seen ${i}`;
+    if (!target[col]) {
+      target[col] = now;
+      break;
+    }
+    if (i === 10) {
+      target[col] = now;
+    }
+  }
+
+  await target.save();
+  console.log(`✅ Open logged for CID: ${trimmedCid}`);
+}
+
+// 🆕 Insert new row on email send
+async function insertTrackingRow(company, email, subject, type, sentTime, cid) {
+  const doc = new GoogleSpreadsheet(SHEET_ID);
+  await doc.useServiceAccountAuth(creds);
+  await doc.loadInfo();
+  const sheet = doc.sheetsByTitle['Email Tracking Log'];
+
+  await sheet.addRow({
+    'Company Name': company,
+    'Email ID': email,
+    'Subject': subject,
+    'Email Type': type,
+    'Sent Time': sentTime,
+    'Total Opens': '',
+    'Last Seen Time': '',
+    'Seen 1': '', 'Seen 2': '', 'Seen 3': '', 'Seen 4': '', 'Seen 5': '',
+    'Seen 6': '', 'Seen 7': '', 'Seen 8': '', 'Seen 9': '', 'Seen 10': '',
+    'Total PDF Views': '', 'Last PDF View Time': '',
+    'Total Cal Clicks': '', 'Last Cal Click Time': '',
+    'Total Web Clicks': '', 'Last Web Click Time': '',
+    'Total Portfolio Link Clicks': '', 'Last Portfolio Link Time': '',
+    'CID': cid
+  });
+
+  console.log(`✅ Row inserted for CID: ${cid}`);
 }
 
 module.exports = {
-  logOpenByCid
+  logOpenByCid,
+  insertTrackingRow
 };
