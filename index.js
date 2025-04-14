@@ -14,7 +14,7 @@ function decodeBase64UrlSafe(str) {
 app.get('/open', async (req, res) => {
   try {
     const encodedCid = req.query.cid;
-    if (!encodedCid) return res.status(400).send('Missing cid');
+    if (!encodedCid) return res.status(400).send('Missing cid');  
 
     // ✅ Decode only for log (not for matching)
     const decoded = decodeBase64UrlSafe(encodedCid);

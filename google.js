@@ -1,8 +1,8 @@
 const { GoogleSpreadsheet } = require('google-spreadsheet');
 const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
-const SHEET_ID = '1VhNgQHRucjmR2itzi7ER6YKPhFbpw0v_0LQOXrmk4vk';
+const SHEET_ID = process.env.GOOGLE_SHEET_ID;
 
-// ✅ Decoder for base64 websafe (matches Utilities.base64EncodeWebSafe in Apps Script)
+// ✅ Utility to decode web-safe base64 (Google-style)
 function decodeBase64UrlSafe(str) {
   str = str.replace(/-/g, '+').replace(/_/g, '/');
   while (str.length % 4 !== 0) str += '=';
@@ -10,60 +10,65 @@ function decodeBase64UrlSafe(str) {
   return buffer.toString('utf-8');
 }
 
-// 🔁 Called by backend when open pixel is triggered
+// 🔍 Log email open event by CID
 async function logOpenByCid(encodedCid) {
-  const decoded = decodeBase64UrlSafe(encodedCid); // decode for logging clarity
-  const parts = decoded.split('||');
-  const [company, email, subject, type, sentTime] = parts;
+  try {
+    const decodedCid = decodeBase64UrlSafe(encodedCid);
+    const [company, email, subject, type, sentTime] = decodedCid.split('||');
+    const now = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' });
 
-  const trimmedCid = encodedCid.trim(); // 🔥 MATCH the encoded CID with sheet directly
-
-  console.log('📩 Open Pixel Triggered:', {
-    company, email, subject, type, sentTime
-  });
-
-  const doc = new GoogleSpreadsheet(SHEET_ID);
-  await doc.useServiceAccountAuth(creds);
-  await doc.loadInfo();
-
-  const sheet = doc.sheetsByTitle['Email Tracking Log'];
-  await sheet.loadHeaderRow();
-  const rows = await sheet.getRows();
-  const now = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' });
-
-  const target = rows.find(r => (r['CID'] || '').trim() === trimmedCid); // ✅ FIXED MATCHING
-
-  if (!target) {
-    console.error('❌ CID not found in sheet:', trimmedCid);
-    return;
-  }
-
-  const total = parseInt(target['Total Opens']) || 0;
-  target['Total Opens'] = total + 1;
-  target['Last Seen Time'] = now;
-
-  for (let i = 1; i <= 10; i++) {
-    const col = `Seen ${i}`;
-    if (!target[col]) {
-      target[col] = now;
-      break;
+    // ❌ Skip logging if the open is from sender
+    if (email.includes('vinodk@tatsa.tech')) {
+      console.log('⛔ Skipping self-open for sender:', email);
+      return;
     }
-    if (i === 10) {
-      target[col] = now;
-    }
-  }
 
-  await target.save();
-  console.log(`✅ Open logged for CID: ${trimmedCid}`);
+    const doc = new GoogleSpreadsheet(SHEET_ID);
+    await doc.useServiceAccountAuth(creds);
+    await doc.loadInfo();
+
+    const sheet = doc.sheetsByTitle['Email Tracking Log'];
+    await sheet.loadHeaderRow();
+    const rows = await sheet.getRows();
+
+    const trimmedCid = encodedCid.trim();
+    const target = rows.find(r => (r['CID'] || '').trim() === trimmedCid);
+
+    if (!target) {
+      console.error('❌ CID not found in sheet:', decodedCid);
+      return;
+    }
+
+    const total = parseInt(target['Total Opens']) || 0;
+    target['Total Opens'] = total + 1;
+    target['Last Seen Time'] = now;
+
+    for (let i = 1; i <= 10; i++) {
+      const col = `Seen ${i}`;
+      if (!target[col]) {
+        target[col] = now;
+        break;
+      }
+      if (i === 10) {
+        target[col] = now;
+      }
+    }
+
+    await target.save();
+    console.log(`✅ Open logged for CID: ${encodedCid}`);
+  } catch (err) {
+    console.error('❌ Error in logOpenByCid:', err.message);
+  }
 }
 
-// 🆕 Called at email send time to insert row
+// 📝 Insert a new tracking row when email is sent
 async function insertTrackingRow(company, email, subject, type, sentTime, cid) {
   const doc = new GoogleSpreadsheet(SHEET_ID);
   await doc.useServiceAccountAuth(creds);
   await doc.loadInfo();
 
   const sheet = doc.sheetsByTitle['Email Tracking Log'];
+
   await sheet.addRow({
     'Company Name': company,
     'Email ID': email,
@@ -88,5 +93,3 @@ module.exports = {
   logOpenByCid,
   insertTrackingRow
 };
-
-
