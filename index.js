@@ -11,7 +11,7 @@ function decodeBase64UrlSafe(str) {
   return buffer.toString('utf-8');
 }
 
-app.get('/open', async (req, res) => {
+app.get('/open', async (req, res) => { 
   try { 
     const encodedCid = req.query.cid;
     if (!encodedCid) return res.status(400).send('Missing cid');  

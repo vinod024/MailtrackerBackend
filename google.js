@@ -1,8 +1,12 @@
 const { GoogleSpreadsheet } = require('google-spreadsheet');
-const creds = require('./mailtracker-backend-456208-e400e290f053.json');
 
-const SHEET_ID = '1VhNgQHRucjmR2itzi7ER6YKPhFbpw0v_0LQOXrmk4vk';
-const SENDER_EMAIL = 'vinodk@tatsa.tech'; // fixed as per current user
+// 🔐 Decode JSON from Railway environment variable
+const decodedCreds = Buffer.from(process.env.GOOGLE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf-8');
+const creds = JSON.parse(decodedCreds);
+
+// 📄 Sheet & sender setup
+const SHEET_ID = process.env.GOOGLE_SHEET_ID;
+const SENDER_EMAIL = process.env.SENDER_EMAIL || 'vinodk@tatsa.tech';
 
 function decodeBase64UrlSafe(str) {
   str = str.replace(/-/g, '+').replace(/_/g, '/');
@@ -22,8 +26,7 @@ async function logOpenByCid(encodedCid) {
       return;
     }
 
-    // 5-second engagement simulation
-    await new Promise(resolve => setTimeout(resolve, 5000));
+    await new Promise(resolve => setTimeout(resolve, 5000)); // simulate 5s read time
 
     const doc = new GoogleSpreadsheet(SHEET_ID);
     await doc.useServiceAccountAuth(creds);
@@ -33,9 +36,7 @@ async function logOpenByCid(encodedCid) {
     await sheet.loadHeaderRow();
     const rows = await sheet.getRows();
 
-    const trimmedCid = encodedCid.trim();
-    const target = rows.find(r => (r['CID'] || '').trim() === trimmedCid);
-
+    const target = rows.find(r => (r['CID'] || '').trim() === encodedCid.trim());
     if (!target) {
       console.error('❌ CID not found in sheet:', decodedCid);
       return;
