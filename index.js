@@ -10,6 +10,7 @@ function decodeBase64UrlSafe(str) {
   return Buffer.from(str, 'base64').toString('utf-8');
 }
 
+
 // ✅ Email Open Tracking Endpoint
 app.get('/open', async (req, res) => {
   try {
