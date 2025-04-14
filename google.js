@@ -13,7 +13,7 @@ function decodeBase64UrlSafe(str) {
   while (str.length % 4 !== 0) str += '=';
   const buffer = Buffer.from(str, 'base64');
   return buffer.toString('utf-8');
-}
+} 
 
 async function logOpenByCid(encodedCid) {
   try {

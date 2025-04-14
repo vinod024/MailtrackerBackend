@@ -10,7 +10,7 @@ function decodeBase64UrlSafe(str) {
   const buffer = Buffer.from(str, 'base64');
   return buffer.toString('utf-8');
 }
-
+ 
 app.get('/open', async (req, res) => { 
   try { 
     const encodedCid = req.query.cid;
