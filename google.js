@@ -1,8 +1,9 @@
 const { GoogleSpreadsheet } = require('google-spreadsheet');
-const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
-const SHEET_ID = process.env.GOOGLE_SHEET_ID;
+const creds = require('./mailtracker-backend-456208-e400e290f053.json');
 
-// ✅ Utility to decode web-safe base64 (Google-style)
+const SHEET_ID = '1VhNgQHRucjmR2itzi7ER6YKPhFbpw0v_0LQOXrmk4vk';
+const SENDER_EMAIL = 'vinodk@tatsa.tech'; // fixed as per current user
+
 function decodeBase64UrlSafe(str) {
   str = str.replace(/-/g, '+').replace(/_/g, '/');
   while (str.length % 4 !== 0) str += '=';
@@ -10,18 +11,19 @@ function decodeBase64UrlSafe(str) {
   return buffer.toString('utf-8');
 }
 
-// 🔍 Log email open event by CID
 async function logOpenByCid(encodedCid) {
   try {
     const decodedCid = decodeBase64UrlSafe(encodedCid);
     const [company, email, subject, type, sentTime] = decodedCid.split('||');
     const now = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' });
 
-    // ❌ Skip logging if the open is from sender
-    if (email.includes('vinodk@tatsa.tech')) {
-      console.log('⛔ Skipping self-open for sender:', email);
+    if (!email || email.toLowerCase() === SENDER_EMAIL.toLowerCase()) {
+      console.log(`⛔ Ignored self-open for: ${email}`);
       return;
     }
+
+    // 5-second engagement simulation
+    await new Promise(resolve => setTimeout(resolve, 5000));
 
     const doc = new GoogleSpreadsheet(SHEET_ID);
     await doc.useServiceAccountAuth(creds);
@@ -49,47 +51,15 @@ async function logOpenByCid(encodedCid) {
         target[col] = now;
         break;
       }
-      if (i === 10) {
-        target[col] = now;
-      }
     }
 
     await target.save();
-    console.log(`✅ Open logged for CID: ${encodedCid}`);
+    console.log(`✅ Logged open for ${email} at ${now}`);
   } catch (err) {
-    console.error('❌ Error in logOpenByCid:', err.message);
+    console.error('❌ logOpenByCid error:', err.message);
   }
 }
 
-// 📝 Insert a new tracking row when email is sent
-async function insertTrackingRow(company, email, subject, type, sentTime, cid) {
-  const doc = new GoogleSpreadsheet(SHEET_ID);
-  await doc.useServiceAccountAuth(creds);
-  await doc.loadInfo();
-
-  const sheet = doc.sheetsByTitle['Email Tracking Log'];
-
-  await sheet.addRow({
-    'Company Name': company,
-    'Email ID': email,
-    'Subject': subject,
-    'Email Type': type,
-    'Sent Time': sentTime,
-    'Total Opens': '',
-    'Last Seen Time': '',
-    'Seen 1': '', 'Seen 2': '', 'Seen 3': '', 'Seen 4': '', 'Seen 5': '',
-    'Seen 6': '', 'Seen 7': '', 'Seen 8': '', 'Seen 9': '', 'Seen 10': '',
-    'Total PDF Views': '', 'Last PDF View Time': '',
-    'Total Cal Clicks': '', 'Last Cal Click Time': '',
-    'Total Web Clicks': '', 'Last Web Click Time': '',
-    'Total Portfolio Link Clicks': '', 'Last Portfolio Link Time': '',
-    'CID': cid
-  });
-
-  console.log(`✅ Row inserted for CID: ${cid}`);
-}
-
 module.exports = {
-  logOpenByCid,
-  insertTrackingRow
+  logOpenByCid
 };
