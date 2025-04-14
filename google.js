@@ -80,3 +80,14 @@ module.exports = {
   logOpenByCid,
   insertTrackingRow
 };
+
+
+
+
+
+
+
+
+
+
+
